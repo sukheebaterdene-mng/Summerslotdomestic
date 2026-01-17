@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="mn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>2026 Зуны Нислэгийн Хуваарь</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+    
+    <style>
+        body, html { margin: 0; padding: 0; height: 100%; overflow: hidden; font-family: 'Inter', sans-serif; background: #0f172a; }
+        #map { height: calc(100vh - 70px); width: 100%; z-index: 1; }
+        
+        /* Pop-up Customization */
+        .leaflet-popup-content-wrapper {
+            border-radius: 12px;
+            padding: 0;
+            overflow: hidden;
+            box-shadow: 0 10px 30px -5px rgba(0, 0, 0, 0.5);
+            background: #1e293b;
+            color: white;
+        }
+        .leaflet-popup-content { margin: 0; width: 300px !important; }
+        .leaflet-popup-tip { background: #1e293b; }
+        .leaflet-container a.leaflet-popup-close-button {
+            color: white;
+            font-size: 24px;
+            padding: 8px;
+            z-index: 10;
+        }
+
+        .flight-header { 
+            padding: 16px; 
+            font-weight: 800; 
+            font-size: 1.1rem; 
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+        .flight-list { 
+            max-height: 220px; 
+            overflow-y: auto; 
+            background: #1e293b; 
+        }
+        .flight-item { 
+            padding: 12px 16px; 
+            border-bottom: 1px solid rgba(255,255,255,0.05); 
+            display: flex; 
+            justify-content: space-between; 
+            align-items: center;
+        }
+        .flight-item:last-child { border: none; }
+        
+        /* Filter Buttons */
+        .filter-btn {
+            transition: all 0.3s ease;
+        }
+        .filter-btn.active {
+            background-color: #fbbf24; /* yellow-400 */
+            color: #0f172a;
+            font-weight: 800;
+        }
+    </style>
+</head>
+<body>
+
+    <header class="h-[70px] flex items-center px-4 md:px-8 justify-between bg-slate-900 border-b border-slate-800 shadow-xl z-50 relative">
+        <div class="flex items-center gap-3">
+            <div class="w-9 h-9 bg-yellow-400 rounded-full flex items-center justify-center text-slate-900 font-black text-lg">✈</div>
+            <div class="leading-tight">
+                <h1 class="text-base md:text-lg font-bold text-white">2026 ЗУНЫ ХУВААРЬ</h1>
+                <p class="text-slate-400 text-[10px] font-bold tracking-widest uppercase hidden md:block">Иргэний Нисэхийн Ерөнхий Газар</p>
+            </div>
+        </div>
+
+        <div class="flex bg-slate-800 rounded-lg p-1 gap-1">
+            <button onclick="filterMap('all')" id="btn-all" class="filter-btn active px-4 py-2 rounded-md text-xs md:text-sm font-bold text-slate-300 hover:text-white">Бүгд</button>
+            <button onclick="filterMap('intl')" id="btn-intl" class="filter-btn px-4 py-2 rounded-md text-xs md:text-sm font-bold text-slate-300 hover:text-white">Олон улс</button>
+            <button onclick="filterMap('dom')" id="btn-dom" class="filter-btn px-4 py-2 rounded-md text-xs md:text-sm font-bold text-slate-300 hover:text-white">Орон нутаг</button>
+        </div>
+    </header>
+
+    <div id="map"></div>
+
+    <div id="legend" class="absolute bottom-6 left-6 z-[999] bg-slate-900/90 backdrop-blur-md p-4 rounded-xl border border-slate-700 shadow-2xl transition-opacity duration-300">
+        </div>
+
+    <script>
+        // --- DATA SETUP ---
+        const ubn = [47.65, 106.90]; // Ulaanbaatar Center Approx
+
+        // Colors
+        const C_EU = "#10b981"; // Europe - Green
+        const C_KR = "#3b82f6"; // Korea - Blue
+        const C_JP = "#ef4444"; // Japan - Red
+        const C_CN = "#8b5cf6"; // China - Purple
+        const C_VAC = "#ec4899"; // Vacation - Pink
+        const C_RU = "#f97316"; // Russia - Orange
+        const C_DOM = "#facc15"; // Domestic - Yellow
+
+        // All Flight Data (Merged from sources)
+        const allFlights = [
+            // --- INTERNATIONAL ---
+            { type: 'intl', id: 'FRA', name: 'Франкфурт', coords: [50.03, 8.56], color: C_EU, flights: [{a:'MIAT', n:'MGL137', t:'10:10', d:'Өдөр бүр'}] },
+            { type: 'intl', id: 'IST', name: 'Истанбул', coords: [41.27, 28.75], color: C_EU, flights: [{a:'MIAT', n:'MGL161', t:'07:55', d:'Ба, Ня'}, {a:'Turkish', n:'THY237', t:'09:10', d:'Мя, Пү, Ба, Ня'}] },
+            { type: 'intl', id: 'ICN', name: 'Сөүл (Инчеон)', coords: [37.46, 126.44], color: C_KR, flights: [{a:'MIAT', n:'MGL301', t:'08:40', d:'Өдөр бүр'}, {a:'Korean Air', n:'KAL2042', t:'13:00', d:'Өдөр бүр'}, {a:'Asiana', n:'AAR568', t:'00:25', d:'Өдөр бүр'}] },
+            { type: 'intl', id: 'PUS', name: 'Бусан', coords: [35.17, 129.07], color: C_KR, flights: [{a:'Air Busan', n:'ABL412', t:'16:30', d:'Мя, Ба'}, {a:'Jeju Air', n:'JJA5258', t:'01:40', d:'Мя, Пү, Бя, Ня'}] },
+            { type: 'intl', id: 'NRT', name: 'Токио (Нарита)', coords: [35.77, 140.39], color: C_JP, flights: [{a:'MIAT', n:'MGL501', t:'07:45', d:'Өдөр бүр'}, {a:'Aero Mon', n:'MNG901', t:'08:00', d:'Мя, Ба, Ня'}, {a:'United', n:'UAL8', t:'09:55', d:'Пү, Ня'}] },
+            { type: 'intl', id: 'KIX', name: 'Осака', coords: [34.43, 135.23], color: C_JP, flights: [{a:'MIAT', n:'MGL505', t:'13:00', d:'Лх, Бя'}] },
+            { type: 'intl', id: 'PEK', name: 'Бээжин (Capital)', coords: [40.07, 116.60], color: C_CN, flights: [{a:'MIAT', n:'MGL223', t:'06:15', d:'Өдөр бүр'}, {a:'Air China', n:'CCA724', t:'18:30', d:'Өдөр бүр'}] },
+            { type: 'intl', id: 'PKX', name: 'Бээжин (Daxing)', coords: [39.50, 116.41], color: C_CN, flights: [{a:'Hunnu Air', n:'MML801', t:'18:55', d:'Да, Лх, Ба'}] },
+            { type: 'intl', id: 'HET', name: 'Хөххот', coords: [40.84, 111.75], color: C_CN, flights: [{a:'MIAT', n:'MGL257', t:'17:00', d:'Мя, Пү, Бя'}, {a:'Aero Mon', n:'MNG801', t:'14:00', d:'Да, Лх, Ба'}] },
+            { type: 'intl', id: 'SYX', name: 'Санья', coords: [18.25, 109.51], color: C_VAC, flights: [{a:'Hunnu', n:'MML815', t:'22:10', d:'Пү, Ня'}, {a:'Juneyao', n:'DKH1528', t:'02:30', d:'Лх, Бя, Ня'}] },
+            { type: 'intl', id: 'HKG', name: 'Хонг Конг', coords: [22.30, 113.91], color: C_VAC, flights: [{a:'MIAT', n:'MGL297', t:'06:20', d:'Өдөр бүр'}] },
+            { type: 'intl', id: 'IKT', name: 'Эрхүү', coords: [52.26, 104.38], color: C_RU, flights: [{a:'IrAero', n:'IAE231', t:'19:20', d:'Мя, Лх, Ба, Бя, Ня'}] },
+
+            // --- DOMESTIC ---
+            { type: 'dom', id: 'HVD', name: 'Ховд', coords: [48.005, 91.641], color: C_DOM, flights: [{a:'MIAT', n:'MGL031', t:'06:50', d:'Да, Пү, Бя'}, {a:'Hunnu', n:'MML031', t:'06:30', d:'Лх, Ба'}] },
+            { type: 'dom', id: 'ULG', name: 'Баян-Өлгий', coords: [48.966, 89.922], color: C_DOM, flights: [{a:'MIAT', n:'MGL067', t:'07:20', d:'Мя'}, {a:'MIAT', n:'MGL067', t:'06:50', d:'Лх, Ня'}] },
+            { type: 'dom', id: 'MXV', name: 'Хөвсгөл (Мөрөн)', coords: [49.663, 100.162], color: C_DOM, flights: [{a:'MIAT', n:'MGL081', t:'10:15', d:'Да, Ба'}, {a:'MIAT', n:'MGL081', t:'13:00', d:'Лх, Бя'}] },
+            { type: 'dom', id: 'DLZ', name: 'Өмнөговь', coords: [43.577, 104.417], color: C_DOM, flights: [{a:'MIAT', n:'MGL091', t:'17:10', d:'Ба, Ня'}, {a:'MIAT', n:'MGL091', t:'19:10', d:'Лх, Бя'}] },
+            { type: 'dom', id: 'ULZ', name: 'Завхан (Доной)', coords: [47.740, 96.850], color: C_DOM, flights: [{a:'MIAT', n:'MGL061', t:'12:35', d:'Да, Пү'}] },
+            { type: 'dom', id: 'ULO', name: 'Увс', coords: [49.970, 92.080], color: C_DOM, flights: [{a:'MIAT', n:'MGL062', t:'16:30', d:'Да, Пү'}] },
+            { type: 'dom', id: 'LTI', name: 'Говь-Алтай', coords: [46.370, 96.250], color: C_DOM, flights: [{a:'MIAT', n:'MGL041', t:'13:00', d:'Да, Пү'}] }
+        ];
+
+        // --- MAP INITIALIZATION ---
+        const map = L.map('map', { zoomControl: false, attributionControl: false }).setView([35, 105], 4);
+        
+        L.control.zoom({ position: 'bottomright' }).addTo(map);
+        
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+            maxZoom: 10,
+            subdomains: 'abcd'
+        }).addTo(map);
+
+        // --- GLOBAL LAYERS ---
+        const markersLayer = L.layerGroup().addTo(map);
+        const linesLayer = L.layerGroup().addTo(map);
+
+        // Ulaanbaatar Hub Marker
+        L.circleMarker(ubn, {
+            radius: 8, color: 'white', fillColor: '#fbbf24', fillOpacity: 1, weight: 2
+        }).addTo(map).bindTooltip("УЛААНБААТАР", { permanent: true, direction: 'top', className: 'bg-transparent border-0 text-yellow-400 font-black text-xs shadow-none' });
+
+        // --- FUNCTIONS ---
+
+        function drawMap(dataset) {
+            markersLayer.clearLayers();
+            linesLayer.clearLayers();
+
+            dataset.forEach(city => {
+                // 1. Draw Line (Curved style logic handled by Leaflet usually needs plugin, using simple line for performance)
+                const line = L.polyline([ubn, city.coords], {
+                    color: city.color,
+                    weight: 1.5,
+                    opacity: 0.6,
+                    dashArray: city.type === 'dom' ? 'none' : '4, 8' // Solid line for domestic, Dashed for Int'l
+                }).addTo(linesLayer);
+
+                // 2. Draw Marker
+                const marker = L.circleMarker(city.coords, {
+                    radius: 6,
+                    color: 'white',
+                    weight: 1.5,
+                    fillColor: city.color,
+                    fillOpacity: 1
+                }).addTo(markersLayer);
+
+                // 3. Popup Content
+                let html = `
+                    <div class="flight-header" style="background: ${city.color}20; color: ${city.color}">
+                        ${city.name}
+                    </div>
+                    <div class="flight-list">`;
+                
+                city.flights.forEach(f => {
+                    html += `
+                        <div class="flight-item">
+                            <div>
+                                <div class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">${f.a}</div>
+                                <div class="text-sm font-bold text-slate-200">${f.t}</div>
+                                <div class="text-[10px] text-slate-500">${f.d}</div>
+                            </div>
+                            <div class="text-xs font-mono font-bold text-white bg-white/10 px-2 py-1 rounded border border-white/10">${f.n}</div>
+                        </div>`;
+                });
+                html += `</div>`;
+
+                marker.bindPopup(html);
+                
+                // Optional: Tooltip on hover
+                marker.bindTooltip(city.name, { direction: 'top', offset: [0, -5], opacity: 0.8 });
+            });
+        }
+
+        function updateLegend(mode) {
+            const legend = document.getElementById('legend');
+            let content = '<div class="text-[10px] font-bold text-slate-400 uppercase mb-2">Тайлбар</div><div class="space-y-2 text-xs font-medium text-white">';
+            
+            if (mode === 'all' || mode === 'intl') {
+                content += `
+                    <div class="flex items-center gap-2"><span class="w-3 h-3 rounded-full bg-[#10b981]"></span> Европ</div>
+                    <div class="flex items-center gap-2"><span class="w-3 h-3 rounded-full bg-[#3b82f6]"></span> Солонгос</div>
+                    <div class="flex items-center gap-2"><span class="w-3 h-3 rounded-full bg-[#ef4444]"></span> Япон</div>
+                    <div class="flex items-center gap-2"><span class="w-3 h-3 rounded-full bg-[#8b5cf6]"></span> Хятад</div>
+                    <div class="flex items-center gap-2"><span class="w-3 h-3 rounded-full bg-[#ec4899]"></span> Аялал</div>
+                `;
+            }
+            if (mode === 'all' || mode === 'dom') {
+                content += `<div class="flex items-center gap-2"><span class="w-3 h-3 rounded-full bg-[#facc15]"></span> Орон нутаг</div>`;
+            }
+            content += '</div>';
+            legend.innerHTML = content;
+        }
+
+        function filterMap(mode) {
+            // Update Buttons
+            document.querySelectorAll('.filter-btn').forEach(btn => btn.classList.remove('active'));
+            document.getElementById(`btn-${mode}`).classList.add('active');
+
+            // Filter Data
+            let filteredData = allFlights;
+            if (mode !== 'all') {
+                filteredData = allFlights.filter(f => f.type === mode);
+            }
+
+            // Draw
+            drawMap(filteredData);
+            updateLegend(mode);
+
+            // Zoom Animation
+            if (mode === 'dom') {
+                // Zoom to Mongolia
+                map.flyTo([47, 100], 6, { duration: 1.5 }); 
+            } else if (mode === 'intl') {
+                // Zoom out to World
+                map.flyTo([35, 110], 4, { duration: 1.5 });
+            } else {
+                // Default view
+                map.flyTo([38, 105], 4, { duration: 1.5 });
+            }
+        }
+
+        // --- INIT ---
+        filterMap('all'); // Load everything initially
+
+    </script>
+</body>
+</html>
